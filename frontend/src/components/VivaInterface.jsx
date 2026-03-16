@@ -1,0 +1,399 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { vivaAPI } from '../api';
+
+export default function VivaInterface({ user }) {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
+
+  const [question, setQuestion] = useState(null);
+  const [transcript, setTranscript] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [skipping, setSkipping] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const recognitionRef = useRef(null);
+  const finalTranscriptRef = useRef('');
+
+  // Initialize speech recognition
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = finalTranscriptRef.current;
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcriptPart = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcriptPart + ' ';
+            finalTranscriptRef.current = finalTranscript;
+          } else {
+            interimTranscript += transcriptPart;
+          }
+        }
+        setTranscript(finalTranscript + interimTranscript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error !== 'no-speech') {
+          setIsListening(false);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, []);
+
+  // Fetch first question
+  useEffect(() => {
+    fetchNextQuestion();
+  }, [sessionId]);
+
+  const fetchNextQuestion = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await vivaAPI.getNextQuestion(sessionId);
+      setQuestion(res.data);
+      setTranscript('');
+      finalTranscriptRef.current = '';
+      setFeedback(null);
+      setShowFeedback(false);
+    } catch (err) {
+      if (err.response?.status === 400 && err.response?.data?.detail?.includes('completed')) {
+        navigate(`/results/${sessionId}`);
+      } else {
+        setError(err.response?.data?.detail || 'Failed to load question.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleListening = useCallback(() => {
+    if (!recognitionRef.current) {
+      setError('Speech recognition is not supported in your browser. Please use Chrome.');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      finalTranscriptRef.current = transcript;
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  }, [isListening, transcript]);
+
+  const handleSubmit = async () => {
+    if (!transcript.trim()) {
+      setError('Please provide an answer before submitting.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+
+    // Stop listening if active
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
+
+    try {
+      const res = await vivaAPI.submitAnswer(sessionId, question.question_id, transcript.trim());
+      setFeedback(res.data);
+      setShowFeedback(true);
+
+      // Move to next question after delay
+      setTimeout(() => {
+        if (res.data.is_last) {
+          navigate(`/results/${sessionId}`);
+        } else {
+          fetchNextQuestion();
+        }
+      }, 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to submit answer.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    setSkipping(true);
+    setError('');
+
+    // Stop listening if active
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
+
+    try {
+      const res = await vivaAPI.skipQuestion(sessionId, question.question_id);
+      setFeedback(res.data);
+      setShowFeedback(true);
+
+      setTimeout(() => {
+        if (res.data.is_last) {
+          navigate(`/results/${sessionId}`);
+        } else {
+          fetchNextQuestion();
+        }
+      }, 1500);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to skip question.');
+    } finally {
+      setSkipping(false);
+    }
+  };
+
+  const progress = question ? (question.question_number / question.total_questions) * 100 : 0;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center animate-fade-in">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full border-4 border-primary-500/20 border-t-primary-500 animate-spin" />
+          <p className="text-surface-200/50">Loading question...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* Top Bar */}
+      <header className="border-b border-white/5 bg-surface-900/50 backdrop-blur-lg">
+        <div className="max-w-4xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center">
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+                </svg>
+              </div>
+              <span className="text-sm font-medium text-white">{user.full_name}</span>
+            </div>
+            {question && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-surface-200/40 uppercase tracking-wider">Question</span>
+                <span className="text-lg font-bold text-primary-400">
+                  {question.question_number}
+                </span>
+                <span className="text-surface-200/30">/</span>
+                <span className="text-sm text-surface-200/50">{question.total_questions}</span>
+              </div>
+            )}
+          </div>
+          {/* Progress bar */}
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-8 max-w-4xl mx-auto w-full">
+        {error && (
+          <div className="mb-6 w-full flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm animate-fade-in">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            {error}
+          </div>
+        )}
+
+        {/* Feedback Overlay */}
+        {showFeedback && feedback && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+            <div className="glass-card p-8 max-w-sm text-center">
+              <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
+                feedback.grade === 'Skipped' ? 'bg-surface-200/10' : feedback.score >= 7 ? 'bg-accent-500/20' : feedback.score >= 5 ? 'bg-amber-500/20' : 'bg-red-500/20'
+              }`}>
+                <span className="text-2xl font-bold">{feedback.grade === 'Skipped' ? '⏭' : feedback.score >= 7 ? '✓' : feedback.score >= 5 ? '~' : '✗'}</span>
+              </div>
+              <h3 className="text-lg font-bold text-white mb-1">{feedback.grade === 'Skipped' ? 'Question Skipped' : 'Answer Recorded'}</h3>
+              <p className="text-sm text-surface-200/50 mb-3">{feedback.feedback}</p>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-3xl font-bold text-primary-400">{feedback.score}</span>
+                <span className="text-surface-200/40">/10</span>
+              </div>
+              <p className={`text-sm font-medium mt-2 ${
+                feedback.score >= 7 ? 'text-accent-400' : feedback.score >= 5 ? 'text-amber-400' : 'text-red-400'
+              }`}>
+                {feedback.grade}
+              </p>
+              {!feedback.is_last && (
+                <p className="text-xs text-surface-200/30 mt-4">Loading next question...</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Question Card */}
+        {question && (
+          <div className="w-full animate-fade-in">
+            <div className="glass-card p-8 mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs font-semibold uppercase tracking-wider text-primary-400/70">
+                  Question {question.question_number} of {question.total_questions}
+                </span>
+                {question.is_last && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-medium">
+                    Last Question
+                  </span>
+                )}
+              </div>
+              <h2 className="text-xl md:text-2xl font-semibold text-white leading-relaxed">
+                {question.question_text}
+              </h2>
+            </div>
+
+            {/* Microphone & Transcription */}
+            <div className="glass-card p-8">
+              <div className="flex flex-col items-center mb-6">
+                {/* Mic Button */}
+                <button
+                  id="mic-btn"
+                  onClick={toggleListening}
+                  disabled={submitting}
+                  className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    isListening
+                      ? 'bg-red-500 shadow-lg shadow-red-500/30 mic-pulse'
+                      : 'bg-gradient-to-br from-primary-500 to-purple-600 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 hover:scale-105'
+                  }`}
+                >
+                  <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                  </svg>
+                </button>
+                <p className="text-sm text-surface-200/40 mt-3">
+                  {isListening ? (
+                    <span className="text-red-400 font-medium flex items-center gap-2">
+                      <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
+                      Recording... Click to stop
+                    </span>
+                  ) : (
+                    'Click to start recording'
+                  )}
+                </p>
+              </div>
+
+              {/* Transcription Area */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-surface-200/50 mb-2">
+                  {transcript ? 'Your Answer:' : 'Detected Answer:'}
+                </label>
+                <div className={`min-h-[120px] p-4 rounded-xl border transition-all ${
+                  isListening
+                    ? 'bg-surface-900/60 border-red-500/30'
+                    : 'bg-surface-900/40 border-white/5'
+                }`}>
+                  {transcript ? (
+                    <p className="text-white leading-relaxed">{transcript}</p>
+                  ) : (
+                    <p className="text-surface-200/30 italic">Your spoken answer will appear here...</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Manual text input fallback */}
+              <div className="mb-6">
+                <label className="block text-xs text-surface-200/30 mb-1">
+                  Or type your answer:
+                </label>
+                <textarea
+                  id="answer-text"
+                  value={transcript}
+                  onChange={(e) => {
+                    setTranscript(e.target.value);
+                    finalTranscriptRef.current = e.target.value;
+                  }}
+                  rows={3}
+                  className="input-field resize-none text-sm"
+                  placeholder="Type your answer here if speech recognition is unavailable..."
+                  disabled={submitting}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  id="submit-answer-btn"
+                  onClick={handleSubmit}
+                  disabled={submitting || skipping || !transcript.trim()}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2 py-4"
+                >
+                  {submitting ? (
+                    <>
+                      <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Evaluating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                      </svg>
+                      Submit Answer
+                    </>
+                  )}
+                </button>
+
+                <button
+                  id="skip-question-btn"
+                  onClick={handleSkip}
+                  disabled={submitting || skipping}
+                  className="px-6 py-4 rounded-xl bg-surface-800/60 border border-white/10 text-surface-200/60 hover:text-white hover:border-amber-500/30 hover:bg-amber-500/10 transition-all text-sm font-medium flex items-center gap-2"
+                >
+                  {skipping ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Skipping...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061A1.125 1.125 0 0 1 3 16.811V8.69ZM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061a1.125 1.125 0 0 1-1.683-.977V8.69Z" />
+                      </svg>
+                      Skip
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
