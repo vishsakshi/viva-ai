@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { vivaAPI } from '../api';
+import Avatar from './Avatar';
 
 export default function VivaInterface({ user }) {
   const { sessionId } = useParams();
@@ -15,9 +16,13 @@ export default function VivaInterface({ user }) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState(false);
 
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -64,6 +69,72 @@ export default function VivaInterface({ user }) {
       }
     };
   }, []);
+
+  // Initialize webcam
+  useEffect(() => {
+    const startWebcam = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error('Failed to access webcam:', err);
+      }
+    };
+
+    startWebcam();
+
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  // Handle TTS when question changes
+  useEffect(() => {
+    if (question && question.question_text) {
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(question.question_text);
+      
+      // Select voice
+      const voices = window.speechSynthesis.getVoices();
+      const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
+      if (englishVoices.length > 0) {
+        const preferredVoice = englishVoices.find(v => v.name.includes('Google US English') || v.name.includes('Female')) || englishVoices[0];
+        utterance.voice = preferredVoice;
+      }
+      
+      utterance.rate = 0.95;
+
+      utterance.onstart = () => setIsAvatarSpeaking(true);
+
+      utterance.onend = () => {
+        setIsAvatarSpeaking(false);
+        // Automatically start listening
+        if (recognitionRef.current) {
+          setTimeout(() => {
+            try {
+              recognitionRef.current.start();
+              setIsListening(true);
+            } catch (e) {
+              console.log('Recognition already started');
+            }
+          }, 300);
+        }
+      };
+      
+      utterance.onerror = () => setIsAvatarSpeaking(false);
+
+      setTimeout(() => {
+        window.speechSynthesis.speak(utterance);
+      }, 500);
+    }
+  }, [question]);
 
   // Fetch first question
   useEffect(() => {
@@ -121,6 +192,8 @@ export default function VivaInterface({ user }) {
       recognitionRef.current.stop();
       setIsListening(false);
     }
+    window.speechSynthesis.cancel();
+    setIsAvatarSpeaking(false);
 
     try {
       const res = await vivaAPI.submitAnswer(sessionId, question.question_id, transcript.trim());
@@ -151,6 +224,8 @@ export default function VivaInterface({ user }) {
       recognitionRef.current.stop();
       setIsListening(false);
     }
+    window.speechSynthesis.cancel();
+    setIsAvatarSpeaking(false);
 
     try {
       const res = await vivaAPI.skipQuestion(sessionId, question.question_id);
@@ -257,6 +332,32 @@ export default function VivaInterface({ user }) {
         {/* Question Card */}
         {question && (
           <div className="w-full animate-fade-in">
+            {/* Avatar and Webcam */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <Avatar isSpeaking={isAvatarSpeaking} />
+              
+              <div className="flex flex-col items-center justify-center p-6 glass-card overflow-hidden min-h-[250px]">
+                <div className="relative w-full h-full min-h-[160px] aspect-video rounded-xl overflow-hidden bg-black/50 border border-white/10">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="absolute inset-0 w-full h-full object-cover transform -scale-x-100"
+                  />
+                  {!streamRef.current && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-surface-200/50 text-sm">Initializing Camera...</span>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-accent-500 animate-pulse" />
+                  <span className="text-sm font-medium text-surface-200">Live Camera</span>
+                </div>
+              </div>
+            </div>
+
             <div className="glass-card p-8 mb-8">
               <div className="flex items-center gap-2 mb-4">
                 <span className="text-xs font-semibold uppercase tracking-wider text-primary-400/70">
