@@ -28,6 +28,49 @@ _BAD_QUESTION_PATTERNS = [
     r'^\s*what is \d',
     r'\bwhat is the \d',
     r'\bhow much\b',
+    # Context-dependent / relative references (useless without the passage)
+    r'\bthe first\b(?!.{0,5}\b(?:layer|step|phase|stage|type|generation|category)\b)',
+    r'\bthe second\b',
+    r'\bthe third\b',
+    r'\bthe fourth\b',
+    r'\bthe fifth\b',
+    r'\bthe last\b',
+    r'\bthe next\b',
+    r'\bthe previous\b',
+    r'\bthe above\b',
+    r'\bthe below\b',
+    r'\bthis (?:method|approach|technique|chapter|section|paragraph|table|diagram|book|paper|article|page|passage)\b',
+    r'\bthat (?:method|approach|technique|chapter|section)\b',
+    r'\bcompare[sd]? to the\b',
+    r'\bcompare[sd]? with the\b',
+    r'\bhow does (?:it|this|that) compare\b',
+    r'\bwhat (?:is|are) (?:it|its|they|their|them)\b',
+    r'^what (?:does|do) (?:it|they) ',
+    r'\bwhat happens (?:next|after|before|then)\b',
+    r'\bin the (?:above|following|previous)\b',
+    r'\bmentioned (?:above|earlier|before|previously)\b',
+    r'\brefer(?:s|red)? to (?:above|earlier|previously)\b',
+    r'\bas (?:shown|seen|mentioned|described|discussed|stated|noted) (?:above|earlier|below|previously|in the)\b',
+    r'\bwhat is the (?:main |primary )?(?:purpose|point|idea|goal|aim) of (?:this|the) (?:chapter|section|paragraph|book|passage|text)\b',
+    r'\bwhat is this\b',
+    r'\bwhat is that\b',
+    r'\bpreparation for\b',
+    # Document structure artifacts (TOC, headers, questions numbers)
+    r'\bpart\s+[ivxlcdm0-9]+\b',
+    r'\bchapter\s+\d+\b',
+    r'\bsection\s+\d+\b',
+    r'\bq\d+(?:-\d+)?\b',
+    r'\bmodule\s+\d+\b',
+    r'\bunit\s+\d+\b',
+    r'\boverview\b',
+    r'\bintroduction\b',
+    r'\bconclusion\b',
+    r'\bsummary\b',
+    r'\breferences?\b',
+    r'\bappendix\b',
+    r'\bindex\b',
+    r'\btable of contents\b',
+    r'\blearning objectives?\b',
 ]
 
 # Keywords that signal good general/conceptual questions
@@ -55,7 +98,8 @@ def load_model():
 
 def is_good_question(question: str) -> bool:
     """
-    Filter: keep general/conceptual questions, reject specific value-based ones.
+    Filter: keep general/conceptual questions, reject specific
+    value-based or context-dependent ones.
     """
     q_lower = question.lower().strip()
 
@@ -72,6 +116,15 @@ def is_good_question(question: str) -> bool:
     words = q_lower.split()
     num_count = sum(1 for w in words if re.match(r'^\d+\.?\d*$', w))
     if num_count > len(words) * 0.3:
+        return False
+
+    # Reject questions that don't contain a recognizable technical/conceptual term
+    # (i.e., questions that are purely about relative/contextual things)
+    has_noun = bool(re.search(
+        r'\b[A-Za-z]{4,}\b',  # at least one word with 4+ letters
+        question
+    ))
+    if not has_noun:
         return False
 
     return True

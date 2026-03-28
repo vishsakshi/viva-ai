@@ -25,67 +25,93 @@ export default function Results({ user, onLogout }) {
 
   const getOverallFeedback = () => {
     if (!results) return [];
-    const wellDone = results.results.filter(r => r.score >= 7).length;
-    const average = results.results.filter(r => r.score >= 4 && r.score < 7).length;
-    const weak = results.results.filter(r => r.score > 0 && r.score < 4).length;
-    const skipped = results.results.filter(r => r.grade === 'Skipped' || r.student_answer === '[Skipped]' || r.score === 0).length;
+
+    // Helper to extract the core topic/concept from a question
+    const extractConcept = (text) => {
+      let concept = text.toLowerCase().replace(/\?/g, '').trim();
+      const prefixes = [
+        'what is the role of the', 'what is the role of',
+        'what is the purpose of the', 'what is the purpose of',
+        'what are the functions of the', 'what are the functions of',
+        'what is the difference between', 'how does the', 'how do the', 'how does', 'how do',
+        'what do you mean by', 'what is a', 'what is an', 'what is the',
+        'what is', 'what are', 'define the', 'define', 'explain the', 'explain', 'describe the', 'describe',
+        'which layer', 'which protocol', 'what type of'
+      ];
+      for (const prefix of prefixes) {
+        if (concept.startsWith(prefix)) {
+          concept = concept.substring(prefix.length).trim();
+          break;
+        }
+      }
+      return concept.length > 2 ? concept : "networking fundamentals";
+    };
+
+    const wellDone = results.results.filter(r => r.score >= 7);
+    const average = results.results.filter(r => r.score >= 4 && r.score < 7);
+    const weak = results.results.filter(r => r.score > 0 && r.score < 4);
+    const skipped = results.results.filter(r => r.grade === 'Skipped' || r.student_answer === '[Skipped]' || r.score === 0);
 
     const feedback = [];
 
-    if (wellDone > 0) {
-      const qNums = results.results.filter(r => r.score >= 7).map(r => `Q${r.question_number}`).join(', ');
+    // Highlight concepts that were well understood
+    if (wellDone.length > 0) {
+      const concepts = Array.from(new Set(wellDone.map(r => extractConcept(r.question_text)))).slice(0, 3).join(', ');
       feedback.push({
-        icon: '',
+        icon: '🌟',
         color: 'text-accent-400',
         bgColor: 'bg-accent-500/8',
         borderColor: 'border-accent-500/15',
-        message: `You answered ${qNums} really well — great understanding of those concepts! Keep it up.`
+        message: `Excellent command of: ${concepts}. Your understanding of these networking mechanisms and architectures is very strong.`
       });
     }
 
-    if (average > 0) {
-      const qNums = results.results.filter(r => r.score >= 4 && r.score < 7).map(r => `Q${r.question_number}`).join(', ');
+    // Highlight concepts that need refinement
+    if (average.length > 0) {
+      const concepts = Array.from(new Set(average.map(r => extractConcept(r.question_text)))).slice(0, 3).join(', ');
       feedback.push({
         icon: '💡',
         color: 'text-amber-400',
         bgColor: 'bg-amber-500/8',
         borderColor: 'border-amber-500/15',
-        message: `For ${qNums}, you had a partial understanding. Revisiting the key terms and definitions will help you improve.`
+        message: `Partial understanding on: ${concepts}. You got the basic idea, but in networking, precision matters. Review the specific terminologies and protocols.`
       });
     }
 
-    if (weak > 0) {
-      const qNums = results.results.filter(r => r.score > 0 && r.score < 4).map(r => `Q${r.question_number}`).join(', ');
+    // Highlight concepts completely missed
+    if (weak.length > 0) {
+      const concepts = Array.from(new Set(weak.map(r => extractConcept(r.question_text)))).slice(0, 3).join(', ');
       feedback.push({
-        icon: '📖',
+        icon: '⚠️',
         color: 'text-orange-400',
         bgColor: 'bg-orange-500/8',
         borderColor: 'border-orange-500/15',
-        message: `${qNums} need more attention. Try reading the relevant sections again and practice explaining concepts in your own words.`
+        message: `Needs attention: ${concepts}. These concepts are crucial for understanding data communications. I recommend re-reading how they operate within the standard models.`
       });
     }
 
-    if (skipped > 0) {
-      const qNums = results.results.filter(r => r.grade === 'Skipped' || r.student_answer === '[Skipped]' || r.score === 0).map(r => `Q${r.question_number}`).join(', ');
+    // Highlight skipped concepts
+    if (skipped.length > 0) {
+      const concepts = Array.from(new Set(skipped.map(r => extractConcept(r.question_text)))).slice(0, 3).join(', ');
       feedback.push({
-        icon: '',
+        icon: '⏭',
         color: 'text-surface-200/60',
         bgColor: 'bg-surface-200/5',
         borderColor: 'border-surface-200/10',
-        message: `You skipped ${qNums}. No worries — revisit those topics and you'll nail them next time!`
+        message: `You skipped topics related to: ${concepts}. Don't let these gaps in your networking knowledge remain. Go back and study these specific areas.`
       });
     }
 
-    // Always add a motivational closing
-    if (wellDone >= 8) {
-      feedback.push({ icon: '', color: 'text-primary-400', bgColor: 'bg-primary-500/8', borderColor: 'border-primary-500/15',
-        message: 'Outstanding overall performance! You clearly prepared well. Keep up the excellent work!' });
-    } else if (wellDone >= 5) {
-      feedback.push({ icon: '', color: 'text-primary-400', bgColor: 'bg-primary-500/8', borderColor: 'border-primary-500/15',
-        message: 'Good effort overall! You have a solid foundation — a bit more revision on weaker areas and you\'ll be acing everything.' });
+    // Structured and personalized networking feedback closing
+    if (wellDone.length >= 8) {
+      feedback.push({ icon: '🎓', color: 'text-primary-400', bgColor: 'bg-primary-500/8', borderColor: 'border-primary-500/15',
+        message: 'Outstanding overall performance! You have a solid grasp of network communications and protocols. You are well-prepared.' });
+    } else if (wellDone.length >= 5) {
+      feedback.push({ icon: '📈', color: 'text-primary-400', bgColor: 'bg-primary-500/8', borderColor: 'border-primary-500/15',
+        message: 'Good effort overall! You have a respectable foundation in computer networks, but bridging the specific knowledge gaps highlighted above will make you an expert.' });
     } else {
-      feedback.push({ icon: '', color: 'text-primary-400', bgColor: 'bg-primary-500/8', borderColor: 'border-primary-500/15',
-        message: 'Every expert was once a beginner. Review the topics you missed and try again — you\'ll see massive improvement!' });
+      feedback.push({ icon: '🔧', color: 'text-primary-400', bgColor: 'bg-primary-500/8', borderColor: 'border-primary-500/15',
+        message: 'Networking can be challenging with its layers and protocols. Don\'t be discouraged. Review the highlighted weaknesses in your textbook to build a stronger foundation.' });
     }
 
     return feedback;

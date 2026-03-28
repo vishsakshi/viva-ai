@@ -422,24 +422,8 @@ export default function VivaInterface({ user }) {
                 </div>
               </div>
 
-              {/* Manual text input fallback */}
-              <div className="mb-6">
-                <label className="block text-xs text-surface-200/30 mb-1">
-                  Or type your answer:
-                </label>
-                <textarea
-                  id="answer-text"
-                  value={transcript}
-                  onChange={(e) => {
-                    setTranscript(e.target.value);
-                    finalTranscriptRef.current = e.target.value;
-                  }}
-                  rows={3}
-                  className="input-field resize-none text-sm"
-                  placeholder="Type your answer here if speech recognition is unavailable..."
-                  disabled={submitting}
-                />
-              </div>
+
+
 
               {/* Action Buttons */}
               <div className="flex gap-3">
