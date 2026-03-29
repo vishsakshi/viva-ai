@@ -105,7 +105,10 @@ export default function VivaInterface({ user }) {
       const voices = window.speechSynthesis.getVoices();
       const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
       if (englishVoices.length > 0) {
-        const preferredVoice = englishVoices.find(v => v.name.includes('Google US English') || v.name.includes('Female')) || englishVoices[0];
+        // Look for common male voices ('Male', 'David', 'Mark', 'Guy')
+        const preferredVoice = englishVoices.find(v => 
+          v.name.includes('Male') || v.name.includes('David') || v.name.includes('Mark') || v.name.includes('Guy')
+        ) || englishVoices[0];
         utterance.voice = preferredVoice;
       }
       
@@ -334,7 +337,7 @@ export default function VivaInterface({ user }) {
           <div className="w-full animate-fade-in">
             {/* Avatar and Webcam */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <Avatar isSpeaking={isAvatarSpeaking} />
+              <Avatar isSpeaking={isAvatarSpeaking} questionText={question.question_text} />
               
               <div className="flex flex-col items-center justify-center p-6 glass-card overflow-hidden min-h-[250px]">
                 <div className="relative w-full h-full min-h-[160px] aspect-video rounded-xl overflow-hidden bg-black/50 border border-white/10">
