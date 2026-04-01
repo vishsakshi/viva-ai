@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * AI Examiner Video Avatar with synchronized playback and subtitles.
@@ -14,17 +14,30 @@ export default function Avatar({ isSpeaking, questionText }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
-    if (videoRef.current) {
-      if (isSpeaking) {
-        // Reset to beginning and play
-        videoRef.current.currentTime = 0;
-        videoRef.current.play().catch(e => console.log('Video autoplay prevented:', e));
-      } else {
-        // Pause immediately when not speaking
-        videoRef.current.pause();
-      }
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    if (isSpeaking) {
+      video.currentTime = 0;
+      video.play().catch((error) => {
+        console.log('Video autoplay prevented:', error);
+      });
+    } else {
+      video.pause();
+      video.currentTime = 0;
     }
   }, [isSpeaking]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isSpeaking) {
+      return;
+    }
+
+    video.currentTime = 0;
+  }, [questionText, isSpeaking]);
 
   return (
     <div className="flex flex-col items-center justify-center p-6 glass-card overflow-hidden h-full min-h-[280px]">
@@ -39,9 +52,10 @@ export default function Avatar({ isSpeaking, questionText }) {
           ref={videoRef}
           src="/teacher.mp4"
           className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isSpeaking ? 'opacity-100' : 'opacity-80 grayscale-[30%]'}`}
-          loop
+          loop={isSpeaking}
           muted
           playsInline
+          preload="auto"
         />
 
         {/* Fallback avatar if video fails/is missing */}
