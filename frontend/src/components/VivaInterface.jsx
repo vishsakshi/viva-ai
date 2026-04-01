@@ -17,12 +17,49 @@ export default function VivaInterface({ user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState(false);
+  const [isExaminerSpeaking, setIsExaminerSpeaking] = useState(false);
 
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const utteranceRef = useRef(null);
+  const speechRequestIdRef = useRef(0);
+
+  const stopExaminerPlayback = useCallback(() => {
+    speechRequestIdRef.current += 1;
+    utteranceRef.current = null;
+    window.speechSynthesis.cancel();
+    setIsExaminerSpeaking(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (!recognitionRef.current) {
+      return;
+    }
+
+    try {
+      recognitionRef.current.start();
+      setIsListening(true);
+    } catch {
+      // Browsers throw if start() is called while recognition is already active.
+    }
+  }, []);
+
+  const pickSpeechVoice = useCallback(() => {
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoices = voices.filter((voice) => voice.lang?.startsWith('en'));
+
+    if (englishVoices.length === 0) {
+      return null;
+    }
+
+    return (
+      englishVoices.find((voice) =>
+        ['Male', 'David', 'Mark', 'Guy'].some((name) => voice.name.includes(name))
+      ) || englishVoices[0]
+    );
+  }, []);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -67,8 +104,9 @@ export default function VivaInterface({ user }) {
       if (recognitionRef.current) {
         recognitionRef.current.abort();
       }
+      stopExaminerPlayback();
     };
-  }, []);
+  }, [stopExaminerPlayback]);
 
   // Initialize webcam
   useEffect(() => {
@@ -90,54 +128,65 @@ export default function VivaInterface({ user }) {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      window.speechSynthesis.cancel();
+      stopExaminerPlayback();
     };
-  }, []);
+  }, [stopExaminerPlayback]);
 
   // Handle TTS when question changes
   useEffect(() => {
     if (question && question.question_text) {
-      window.speechSynthesis.cancel();
-      
+      stopExaminerPlayback();
+
       const utterance = new SpeechSynthesisUtterance(question.question_text);
-      
-      // Select voice
-      const voices = window.speechSynthesis.getVoices();
-      const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
-      if (englishVoices.length > 0) {
-        // Look for common male voices ('Male', 'David', 'Mark', 'Guy')
-        const preferredVoice = englishVoices.find(v => 
-          v.name.includes('Male') || v.name.includes('David') || v.name.includes('Mark') || v.name.includes('Guy')
-        ) || englishVoices[0];
-        utterance.voice = preferredVoice;
+      const requestId = speechRequestIdRef.current + 1;
+
+      speechRequestIdRef.current = requestId;
+      utteranceRef.current = utterance;
+
+      const voice = pickSpeechVoice();
+      if (voice) {
+        utterance.voice = voice;
       }
-      
+
       utterance.rate = 0.95;
 
-      utterance.onstart = () => setIsAvatarSpeaking(true);
+      utterance.onstart = () => {
+        if (speechRequestIdRef.current !== requestId) {
+          return;
+        }
+        setIsExaminerSpeaking(true);
+      };
 
       utterance.onend = () => {
-        setIsAvatarSpeaking(false);
-        // Automatically start listening
-        if (recognitionRef.current) {
-          setTimeout(() => {
-            try {
-              recognitionRef.current.start();
-              setIsListening(true);
-            } catch (e) {
-              console.log('Recognition already started');
-            }
-          }, 300);
+        if (speechRequestIdRef.current !== requestId) {
+          return;
+        }
+        utteranceRef.current = null;
+        setIsExaminerSpeaking(false);
+        startListening();
+      };
+
+      utterance.onerror = (event) => {
+        if (speechRequestIdRef.current !== requestId) {
+          return;
+        }
+        utteranceRef.current = null;
+        setIsExaminerSpeaking(false);
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+          setError('Question playback failed. You can still answer manually.');
         }
       };
-      
-      utterance.onerror = () => setIsAvatarSpeaking(false);
 
-      setTimeout(() => {
+      // Render the avatar into speaking mode before TTS starts.
+      setIsExaminerSpeaking(true);
+      requestAnimationFrame(() => {
+        if (speechRequestIdRef.current !== requestId) {
+          return;
+        }
         window.speechSynthesis.speak(utterance);
-      }, 500);
+      });
     }
-  }, [question]);
+  }, [question, pickSpeechVoice, startListening, stopExaminerPlayback]);
 
   // Fetch first question
   useEffect(() => {
@@ -195,8 +244,7 @@ export default function VivaInterface({ user }) {
       recognitionRef.current.stop();
       setIsListening(false);
     }
-    window.speechSynthesis.cancel();
-    setIsAvatarSpeaking(false);
+    stopExaminerPlayback();
 
     try {
       const res = await vivaAPI.submitAnswer(sessionId, question.question_id, transcript.trim());
@@ -227,8 +275,7 @@ export default function VivaInterface({ user }) {
       recognitionRef.current.stop();
       setIsListening(false);
     }
-    window.speechSynthesis.cancel();
-    setIsAvatarSpeaking(false);
+    stopExaminerPlayback();
 
     try {
       const res = await vivaAPI.skipQuestion(sessionId, question.question_id);
@@ -337,7 +384,7 @@ export default function VivaInterface({ user }) {
           <div className="w-full animate-fade-in">
             {/* Avatar and Webcam */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <Avatar isSpeaking={isAvatarSpeaking} questionText={question.question_text} />
+              <Avatar isSpeaking={isExaminerSpeaking} questionText={question.question_text} />
               
               <div className="flex flex-col items-center justify-center p-6 glass-card overflow-hidden min-h-[250px]">
                 <div className="relative w-full h-full min-h-[160px] aspect-video rounded-xl overflow-hidden bg-black/50 border border-white/10">
